@@ -1,10 +1,10 @@
 FROM python
-WORKDIR /app
 
+WORKDIR /app
 COPY ingestion/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ingestion/rss_fetcher.py .
+COPY .env .env
 
-# Pass .env at runtime or bake it in via build args if you like
 CMD ["python", "rss_fetcher.py"]

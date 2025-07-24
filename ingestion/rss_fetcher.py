@@ -1,42 +1,78 @@
 #!/usr/bin/env python3
-import os
-import json
+import os, json
 from datetime import datetime
-from pathlib import Path
 from loguru import logger
 import feedparser
 import newspaper
 from dotenv import load_dotenv
+from pymongo import MongoClient, errors
 
-load_dotenv()  # reads .env in working directory
+# ─── Logging ─────────────────────────────────────────────────────
+logger.remove()
+logger.add(lambda m: print(m, end=""), level="DEBUG")
 
-FEEDS = os.getenv("RSS_FEEDS", "").split(",")
-OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./data/raw"))
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# ─── Load Config ─────────────────────────────────────────────────
+load_dotenv()
 
-def fetch_and_store():
-    for url in FEEDS:
-        logger.info(f"Fetching feed: {url}")
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:5]:  # limit per feed
+FEEDS = [u.strip() for u in os.getenv("RSS_FEEDS", "").split(",") if u.strip()]
+DB_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+DB_NAME = os.getenv("MONGO_DB", "tyche")
+COLL_NAME = os.getenv("MONGO_COLLECTION", "articles")
+
+# ─── Setup MongoDB Client ────────────────────────────────────────
+client = MongoClient(DB_URI)
+db = client[DB_NAME]
+collection = db[COLL_NAME]
+
+# Create a unique index on URL to prevent duplicates
+try:
+    collection.create_index("url", unique=True)
+    logger.debug("Ensured unique index on 'url'")
+except errors.DuplicateKeyError:
+    pass
+
+# ─── Core Fetch & Store ─────────────────────────────────────────
+def fetch_and_store(limit_per_feed: int = 5):
+    logger.info(f"Starting fetch_and_store(limit_per_feed={limit_per_feed})")
+    for feed_url in FEEDS:
+        logger.info(f"Parsing RSS feed: {feed_url}")
+        feed = feedparser.parse(feed_url)
+        if not feed.entries:
+            logger.warning(f"No entries for {feed_url}")
+            continue
+
+        for entry in feed.entries[:limit_per_feed]:
+            link = entry.get("link")
+            pub = entry.get("published", datetime.utcnow().isoformat())
+            logger.debug(f"Processing: {link}")
+
             try:
-                art = newspaper.Article(entry.link)
-                art.download()
-                art.parse()
-                record = {
-                    "title": art.title,
-                    "url": entry.link,
-                    "published": entry.get("published", str(datetime.utcnow())),
-                    "text": art.text
+                article = newspaper.Article(link)
+                article.download()
+                article.parse()
+
+                doc = {
+                    "title": article.title,
+                    "url": link,
+                    "published": pub,
+                    "fetched_at": datetime.utcnow(),
+                    "text": article.text
                 }
-                # filename: sanitized title + timestamp
-                fname = f"{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}-{abs(hash(entry.link))}.json"
-                path = OUTPUT_DIR / fname
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(record, f, ensure_ascii=False, indent=2)
-                logger.info(f"Saved article to {path}")
+
+                # Upsert into Mongo: insert if new, skip if exists
+                res = collection.update_one(
+                    {"url": link},
+                    {"$setOnInsert": doc},
+                    upsert=True
+                )
+                if res.upserted_id:
+                    logger.success(f"Inserted new article: {link}")
+                else:
+                    logger.info(f"Skipping duplicate: {link}")
+
             except Exception as e:
-                logger.error(f"Error processing {entry.link}: {e}")
+                logger.error(f"Error with {link}: {e}")
 
 if __name__ == "__main__":
-    fetch_and_store()
+    fetch_and_store(limit_per_feed=5)
+    client.close()

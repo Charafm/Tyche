@@ -2,3 +2,5 @@ feedparser
 newspaper3k
 python-dotenv
 loguru
+lxml[html_clean]
+pymongo

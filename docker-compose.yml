@@ -1,10 +1,30 @@
+# Remove the version line if you’re on Compose v2+; otherwise it’s harmless.
 version: "3.8"
+
 services:
-    ingestion:
-      build:
-        context: .
-        dockerfile: ingestion/Dockerfile
-      env_file:
-        - .env
-      volumes:
-        - ./data/raw:/app/data/raw
+  ingestion:
+    build:
+      context: .
+      
+      dockerfile: ingestion/Dockerfile
+    
+    
+    environment:
+      - RSS_FEEDS=${RSS_FEEDS}
+      - MONGO_URI=${MONGO_URI}
+      - MONGO_DB=${MONGO_DB}
+      - MONGO_COLLECTION=${MONGO_COLLECTION}
+    depends_on:
+      - mongodb
+    env_file: .env
+  mongodb:
+    image: mongo:6.0
+    container_name: tyche_mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
