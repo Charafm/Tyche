@@ -1,0 +1,12 @@
+spacy
+neo4j
+feedparser
+newspaper3k
+sentence-transformers
+faiss-cpu
+fastapi
+uvicorn
+llama-cpp-python
+pytest
+pyyaml
+loguru

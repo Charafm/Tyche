@@ -1,2 +1,3 @@
 # Tyche
-Tyche GraphRAG
+
+Scaffolded Tyche GraphRAG Finance Platform.
